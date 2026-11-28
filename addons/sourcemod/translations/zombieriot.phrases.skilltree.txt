@@ -79,6 +79,33 @@
 		"it"	"Sbloccato"
 		"ko"	"해금됨"
 	}
+	"Refund Skill Point"
+	{
+		"en"		"Refund 1 Point"
+		"ko"		"현재 노드의 포인트 1점 회수"
+	}
+	"Refund All Skill Points"
+	{
+		"en"		"Refund All Points"
+		"ko"		"현재 노드의 모든 포인트 회수"
+	}
+	"Refund Blocked By Child"
+	{
+		"#format"	"{1:d}"
+		"en"		"{red}[SkillTree]{default} You must refund child nodes first. (Minimum required: {1})"
+		"ko"		"{red}[SkillTree]{default} 하위 노드 점수를 먼저 제거해야 합니다. (노드 유지 최소 필요 점수: {1})"
+	}
+	"Refund All Confirm"
+	{
+		"en"		"Refunding all points from this node will lock its child nodes.\nDo you want to refund all points from the child nodes as well?"
+		"ko"		"이 노드의 포인트를 전부 빼면 하위 노드가 잠깁니다.\n하위 노드에 투자된 포인트도 모두 함께 수거하시겠습니까?"
+	}
+	"Refund All Confirm Yes"
+	{
+		"en"		"Yes (Refund including child nodes)"
+		"ko"		"예 (하위 노드 포함 전부 수거)"
+	}
+	
 	"Luck Up 1"
 	{
 		"en" 		"Luck Up"

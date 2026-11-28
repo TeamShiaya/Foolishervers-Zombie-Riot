@@ -72,6 +72,7 @@ static StringMap SkillCountPrevious[MAXPLAYERS];
 static StringMapSnapshot SkillCountSnap[MAXPLAYERS];
 static char Selected[MAXPLAYERS][32];
 static bool InMenu[MAXPLAYERS];
+static bool InSubMenu[MAXPLAYERS];
 static bool CanAccess[MAXPLAYERS][DIR_MAX+1];
 static int PointsSpent[MAXPLAYERS];
 
@@ -227,7 +228,10 @@ void SkillTree_ApplyAttribs(int client, StringMap map)
 			char[] name = new char[size];
 			SkillCountSnap[client].GetKey(i, name, size);
 			SkillCount[client].GetValue(name, size);
-
+			
+			if(size <= 0)
+				continue;
+			
 			static Skill skill;
 			SkillList.GetArray(name, skill, sizeof(skill));
 			if(skill.Player != INVALID_FUNCTION)
@@ -258,7 +262,10 @@ void SkillTree_GiveItem(int client, int weapon)
 			char[] name = new char[size];
 			SkillCountSnap[client].GetKey(i, name, size);
 			SkillCount[client].GetValue(name, size);
-
+			
+			if(size <= 0)
+				continue;
+			
 			static Skill skill;
 			SkillList.GetArray(name, skill, sizeof(skill));
 			if(skill.Weapon != INVALID_FUNCTION)
@@ -365,8 +372,15 @@ void SkillTree_OpenMenu(int client)
 
 bool SkillTree_PlayerRunCmd(int client, int &buttons, float vel[3])
 {
-	if(!InMenu[client])
+	if(!InMenu[client] && !InSubMenu[client])
 		return false;
+	
+	if(InSubMenu[client])
+	{
+		buttons = 0;
+		Zero(vel);
+		return true;
+	}
 	
 	static bool holding[MAXPLAYERS][DIR_MAX+1];
 	if(holding[client][UP])
@@ -538,7 +552,94 @@ static int ResetSkillH(Menu menu, MenuAction action, int client, int choice)
 // For Music
 bool SkillTree_InMenu(int client)
 {
-	return InMenu[client];
+	return InMenu[client] || InSubMenu[client];
+}
+
+// 해당 노드 또는 그 하위 노드 중 1점 이상 투자된 노드가 있는지 재귀 확인
+static bool HasInvestedInSubtree(int client, const char[] nodeId)
+{
+	int charge = 0;
+	if(SkillCount[client] && SkillCount[client].GetValue(nodeId, charge) && charge > 0)
+		return true;
+
+	int length = SkillListSnap.Length;
+	for(int i = 0; i < length; i++)
+	{
+		int size = SkillListSnap.KeyBufferSize(i);
+		char[] childId = new char[size];
+		SkillListSnap.GetKey(i, childId, size);
+
+		Skill childSkill;
+		SkillList.GetArray(childId, childSkill, sizeof(childSkill));
+
+		if(StrEqual(childSkill.Parent, nodeId))
+		{
+			if(HasInvestedInSubtree(client, childId))
+				return true;
+		}
+	}
+
+	return false;
+}
+
+// 현재 투자된 하위 노드들이 막히지 않기 위해 이 노드가 유지해야 하는 최소 점수 반환
+static int GetMinRequiredPoints(int client, const char[] nodeId)
+{
+	int minReq = 0;
+	int length = SkillListSnap.Length;
+
+	for(int i = 0; i < length; i++)
+	{
+		int size = SkillListSnap.KeyBufferSize(i);
+		char[] childId = new char[size];
+		SkillListSnap.GetKey(i, childId, size);
+
+		Skill childSkill;
+		SkillList.GetArray(childId, childSkill, sizeof(childSkill));
+
+		// 직계 자식 노드 중 하위 트리에 점수가 투자되어 있는 경우
+		if(StrEqual(childSkill.Parent, nodeId) && HasInvestedInSubtree(client, childId))
+		{
+			if(childSkill.MinNeed > minReq)
+				minReq = childSkill.MinNeed;
+		}
+	}
+
+	return minReq;
+}
+
+// 해당 노드와 그로 인해 막히게 되는 하위 노드들의 점수를 재귀적으로 전부 회수
+static void RefundNodeRecursive(int client, const char[] nodeId, bool forceSubtree = false)
+{
+	Skill skill;
+	if(!SkillList.GetArray(nodeId, skill, sizeof(skill)))
+		return;
+
+	int charge = 0;
+	if(SkillCount[client].GetValue(nodeId, charge) && charge > 0)
+	{
+		// DB 동기화(SkillTree_GetNext)를 위해 키를 삭제하지 않고 0으로 설정
+		SkillCount[client].SetValue(nodeId, 0);
+		PointsSpent[client] -= skill.Cost * charge;
+	}
+
+	int length = SkillListSnap.Length;
+	for(int i = 0; i < length; i++)
+	{
+		int size = SkillListSnap.KeyBufferSize(i);
+		char[] childId = new char[size];
+		SkillListSnap.GetKey(i, childId, size);
+
+		Skill childSkill;
+		SkillList.GetArray(childId, childSkill, sizeof(childSkill));
+
+		// 이 노드가 0점이 되면서 잠기는 자식 노드(MinNeed > 0)이거나,
+		// 이미 상위에서 잠겨서 강제 회수 중인 가지(forceSubtree)라면 하위 전부 회수
+		if(StrEqual(childSkill.Parent, nodeId) && (forceSubtree || childSkill.MinNeed > 0))
+		{
+			RefundNodeRecursive(client, childId, true);
+		}
+	}
 }
 
 void TreeMenu(int client, bool force = false, bool displayMenu = true)
@@ -858,7 +959,14 @@ void TreeMenu(int client, bool force = false, bool displayMenu = true)
 		menu.AddItem(names[LEFT], "←", CanAccess[client][LEFT] ? ITEMDRAW_DEFAULT : ITEMDRAW_SPACER);
 		menu.AddItem(names[DOWN], "↓", CanAccess[client][DOWN] ? ITEMDRAW_DEFAULT : ITEMDRAW_SPACER);
 		menu.AddItem(names[RIGHT], "→", CanAccess[client][RIGHT] ? ITEMDRAW_DEFAULT : ITEMDRAW_SPACER);
-
+		
+		// 추가된 항목 (choice 5, 6) - 투자된 점수가 1 이상일 때만 활성화
+		FormatEx(buffer, sizeof(buffer), "%t", "Refund Skill Point");
+		menu.AddItem("refund_one", buffer, charge > 0 ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+		
+		FormatEx(buffer, sizeof(buffer), "%t", "Refund All Skill Points");
+		menu.AddItem("refund_all", buffer, charge > 0 ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+		
 		menu.OptionFlags |= MENUFLAG_NO_SOUND;
 		InMenu[client] = menu.Display(client, MENU_TIME_FOREVER);
 	//	DoOverlayLogicLeper(client);
@@ -897,28 +1005,140 @@ static int TreeMenuH(Menu menu, MenuAction action, int client, int choice)
 			static Skill skill;
 			if(SkillList.GetArray(Selected[client], skill, sizeof(skill)))
 			{
-				if(choice)
+				switch(choice)
 				{
-					char buffer[64];
-					FormatEx(buffer, sizeof(buffer), "ui/hitsound_electro%d.wav", 1 + (GetURandomInt() % 3));
-					EmitSoundToClient(client, buffer, client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6, GetRandomInt(80,85));
-					
-					menu.GetItem(choice, Selected[client], sizeof(Selected[]));
+					case 0: // 기존 업그레이드
+					{
+						EmitSoundToClient(client, "ui/hitsound_space.wav", client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6, GetRandomInt(50,55));
+
+						int amount = 0;
+						SkillCount[client].GetValue(Selected[client], amount);
+						SkillCount[client].SetValue(Selected[client], amount + 1);
+						PointsSpent[client] += skill.Cost;
+
+						delete SkillCountSnap[client];
+						TreeMenu(client, true);
+					}
+					case 1, 2, 3, 4: // 기존 방향 이동
+					{
+						char buffer[64];
+						FormatEx(buffer, sizeof(buffer), "ui/hitsound_electro%d.wav", 1 + (GetURandomInt() % 3));
+						EmitSoundToClient(client, buffer, client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6, GetRandomInt(80,85));
+						
+						menu.GetItem(choice, Selected[client], sizeof(Selected[]));
+						TreeMenu(client, true);
+					}
+					case 5: // 1. 한 노드에 투자한 포인트 1점 빼기
+					{
+						int amount = 0;
+						SkillCount[client].GetValue(Selected[client], amount);
+						int minReq = GetMinRequiredPoints(client, Selected[client]);
+
+						if(amount > 0)
+						{
+							if(amount - 1 < minReq)
+							{
+								// 하위 노드가 막히는 경우 경고 표시
+								EmitSoundToClient(client, "common/wpn_denyselect.wav", client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6);
+								CPrintToChat(client, "%t", "Refund Blocked By Child", minReq);
+							}
+							else
+							{
+								EmitSoundToClient(client, "ui/hitsound_space.wav", client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6, GetRandomInt(40,45));
+								SkillCount[client].SetValue(Selected[client], amount - 1);
+								PointsSpent[client] -= skill.Cost;
+								delete SkillCountSnap[client];
+							}
+						}
+
+						TreeMenu(client, true);
+					}
+					case 6: // 2. 한 노드에 투자한 포인트 전부 빼기
+					{
+						int amount = 0;
+						SkillCount[client].GetValue(Selected[client], amount);
+
+						if(amount > 0)
+						{
+							int minReq = GetMinRequiredPoints(client, Selected[client]);
+							if(minReq > 0)
+							{
+								// 하위 노드가 막히는 경우 확인 메뉴 출력
+								RefundConfirmMenu(client);
+								return 0;
+							}
+							else
+							{
+								EmitSoundToClient(client, "ui/hitsound_space.wav", client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6, GetRandomInt(40,45));
+								SkillCount[client].SetValue(Selected[client], 0);
+								PointsSpent[client] -= skill.Cost * amount;
+								delete SkillCountSnap[client];
+							}
+						}
+
+						TreeMenu(client, true);
+					}
 				}
-				else
-				{
-					EmitSoundToClient(client, "ui/hitsound_space.wav", client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6, GetRandomInt(50,55));
+			}
+		}
+	}
 
-					int amount;
-					SkillCount[client].GetValue(Selected[client], amount);
-					SkillCount[client].SetValue(Selected[client], amount + 1);
-					PointsSpent[client] += skill.Cost;
+	return 0;
+}
 
-					delete SkillCountSnap[client];
-				}
+static void RefundConfirmMenu(int client)
+{
+	Menu menu = new Menu(RefundConfirmMenuH);
+	SetGlobalTransTarget(client);
+	
+	menu.SetTitle("%t\n ", "Refund All Confirm");
+	
+	char buffer[64];
+	FormatEx(buffer, sizeof(buffer), "%t", "Refund All Confirm Yes");
+	menu.AddItem("yes", buffer);
+	
+	FormatEx(buffer, sizeof(buffer), "%t", "No");
+	menu.AddItem("no", buffer);
+	
+	InSubMenu[client] = menu.Display(client, MENU_TIME_FOREVER);
+}
 
+static int RefundConfirmMenuH(Menu menu, MenuAction action, int client, int choice)
+{
+	switch(action)
+	{
+		case MenuAction_End:
+		{
+			delete menu;
+		}
+		case MenuAction_Cancel:
+		{
+			if(choice == MenuCancel_Exit)
+			{
 				TreeMenu(client, true);
 			}
+			else
+			{
+				if(IsValidClient(client))
+				{
+					UTIL_ScreenFade(client, 1, 1, FFADE_PURGE, 0, 0, 0, 233);
+					UTIL_ScreenFade(client, 66, 66, FFADE_OUT, 0, 0, 0, 233);
+				}
+
+				if(CustomMusic.Path[0])
+					StopCustomSound(client, SNDCHAN_STATIC, CustomMusic.Path);
+			}
+		}
+		case MenuAction_Select:
+		{
+			if(choice == 0) // Yes
+			{
+				EmitSoundToClient(client, "ui/hitsound_space.wav", client, SNDCHAN_STATIC, SNDLEVEL_NONE, _, 0.6, GetRandomInt(40,45));
+				RefundNodeRecursive(client, Selected[client]);
+				delete SkillCountSnap[client];
+			}
+
+			TreeMenu(client, true);
 		}
 	}
 
