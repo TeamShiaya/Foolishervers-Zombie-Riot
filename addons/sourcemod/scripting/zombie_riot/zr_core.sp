@@ -781,7 +781,6 @@ char s_MissionClient[64]; // Who hired us for the current job
 #include "custom/addons/weapon_wand_freeze.sp"
 #include "custom/addons/kit_fractal_isomer.sp"
 #include "custom/addons/weapon_medikit.sp"
-#include "custom/addons/weapon_medicinal_cannon.sp"
 #include "custom/kit_soldine.sp"
 #include "custom/weapon_kritzkrieg.sp"
 #include "custom/wand/weapon_bubble_wand.sp"
