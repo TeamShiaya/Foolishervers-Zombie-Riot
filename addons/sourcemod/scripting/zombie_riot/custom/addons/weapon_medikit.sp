@@ -59,6 +59,9 @@ public void Weapon_Medikit_M1(int client, int weapon, bool crit, int slot)
 	
 	healing += float(maxHealth)*0.025;
 	
+	if(f_TimeUntillNormalHeal[target] - 2.0 > GetGameTime())
+		healing *= 0.5;
+	
 	int Health_To_Max;
 	if(target <= MaxClients && dieingstate[target] > 0)
 	{
@@ -80,7 +83,7 @@ public void Weapon_Medikit_M1(int client, int weapon, bool crit, int slot)
 				savelive = 1;
 			dieingstate[target] = savelive;
 		}
-		Health_To_Max=80;
+		Health_To_Max = 80;
 	}
 	else
 	{
@@ -91,6 +94,8 @@ public void Weapon_Medikit_M1(int client, int weapon, bool crit, int slot)
 	if(Health_To_Max > 0)
 	{
 		healing=float(Health_To_Max/2);
+		if(f_TimeUntillNormalHeal[client] - 2.0 > GetGameTime())
+			healing *= 0.5;
 		HealEntityGlobal(client, client, healing, 1.0, 0.5);
 	}
 	
@@ -281,6 +286,9 @@ public void Weapon_Medikit_M2(int client, int weapon, bool crit, int slot)
 	
 	healing += float(maxHealth)*0.025;
 	
+	if(f_TimeUntillNormalHeal[client] - 2.0 > GetGameTime())
+		healing *= 0.5;
+	
 	int Health_To_Max;
 	if(dieingstate[client] > 0)
 	{
@@ -302,6 +310,7 @@ public void Weapon_Medikit_M2(int client, int weapon, bool crit, int slot)
 				savelive = 1;
 			dieingstate[client] = savelive;
 		}
+		Health_To_Max = 80;
 	}
 	else
 	{
