@@ -312,26 +312,6 @@ static void Weapon_Hose_Shoot(int client, int weapon, float speed, float baseHea
 	}
 }
 
-/*static void DoAllysExlosionTraceCheck(const float pos1[3], float radius, int entity, ArrayList HitEntitiesSphereExplosionTrace)
-{
-	DataPack packFilter = new DataPack();
-	packFilter.WriteCell(HitEntitiesSphereExplosionTrace);
-	packFilter.WriteCell(entity);
-	TR_EnumerateEntitiesSphere(pos1, radius, PARTITION_NON_STATIC_EDICTS, TraceEntityAllyInRange, packFilter);
-
-	delete packFilter;
-}*/
-
-/*static bool TraceEntityAllyInRange(int entity, DataPack packFilter)
-{
-	packFilter.Reset();
-	ArrayList HitEntitiesSphereExplosionTrace = packFilter.ReadCell();
-	int filterentity = packFilter.ReadCell();
-	if(IsValidAlly(filterentity, entity))
-		HitEntitiesSphereExplosionTrace.Push(entity);
-	return true;
-}*/
-
 //If you use SearchDamage (above), convert this timer to a void method and rename it to Cryo_DealDamage:
 public void Hose_Touch(int entity, int other)
 {
